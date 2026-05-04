@@ -38,7 +38,7 @@ enum InstCounterType {
   NUM_INST_CNTS = NUM_EXPERT_INST_CNTS
 };
 
-StringLiteral getInstCounterName(InstCounterType T, bool HasExtendedWaitcnts);
+StringLiteral getInstCounterName(InstCounterType T);
 
 // Return an iterator over all counters between LOAD_CNT (the first counter)
 // and \c MaxCounter (exclusive, default value yields an enumeration over
@@ -122,24 +122,21 @@ public:
     return Wait;
   }
 
-  Printable getPrintable(raw_ostream &OS, bool HasExtendedWaitcnts) const {
-    return Printable([HasExtendedWaitcnts, this](raw_ostream &OS) {
+  Printable getPrintable() const {
+    return Printable([this](raw_ostream &OS) {
       ListSeparator LS;
       for (InstCounterType T : inst_counter_types())
-        OS << LS << getInstCounterName(T, HasExtendedWaitcnts) << ": "
-           << Cnt[T];
+        OS << LS << getInstCounterName(T) << ": " << Cnt[T];
       if (LS.unused())
         OS << "none";
       OS << '\n';
     });
   }
 
-  void print(raw_ostream &OS, bool HasExtendedWaitcnts) const {
-    OS << getPrintable(OS, HasExtendedWaitcnts);
-  }
+  void print(raw_ostream &OS) const { OS << getPrintable(); }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-  LLVM_DUMP_METHOD void dump(bool HasExtendedWaitcnts) const;
+  LLVM_DUMP_METHOD void dump() const;
 #endif
 };
 

@@ -1329,8 +1329,7 @@ void WaitcntBrackets::print(raw_ostream &OS) const {
 
   for (auto T : inst_counter_types(Context->MaxCounter)) {
     unsigned SR = getScoreRange(T);
-    OS << "    " << getInstCounterName(T, ST.hasExtendedWaitCounts()) << "("
-       << SR << "):";
+    OS << "    " << getInstCounterName(T) << "(" << SR << "):";
 
     if (SR != 0) {
       // Print vgpr scores.
@@ -1397,7 +1396,7 @@ void WaitcntBrackets::print(raw_ostream &OS) const {
   for (const auto &Mark : AsyncMarks) {
     for (auto T : AMDGPU::inst_counter_types()) {
       unsigned MarkedScore = Mark[T];
-      OS << getInstCounterName(T, ST.hasExtendedWaitCounts()) << MarkedScore;
+      OS << getInstCounterName(T) << MarkedScore;
     }
     OS << '\n';
   }
@@ -1552,9 +1551,7 @@ AMDGPU::Waitcnt WaitcntBrackets::determineAsyncWait(unsigned N) {
   });
   AsyncMarks.erase(AsyncMarks.begin(), AsyncMarks.begin() + MarkIndex + 1);
 
-  LLVM_DEBUG(
-      dbgs() << "Waits to add: "
-             << Wait.getPrintable(dbgs(), Context->ST.hasExtendedWaitCounts()));
+  LLVM_DEBUG(dbgs() << "Waits to add: " << Wait.getPrintable());
   return Wait;
 }
 
@@ -1776,16 +1773,11 @@ bool WaitcntGeneratorPreGFX12::applyPreexistingWaitcnt(
         WaitcntInstr = &II;
     } else if (Opcode == AMDGPU::S_WAITCNT_lds_direct) {
       assert(ST.hasVMemToLDSLoad());
-      LLVM_DEBUG(
-          dbgs() << "Processing S_WAITCNT_lds_direct: " << II << "Before: "
-                 << Wait.getPrintable(dbgs(), /*HasExtendedWaitcnts=*/false)
-                 << '\n');
+      LLVM_DEBUG(dbgs() << "Processing S_WAITCNT_lds_direct: " << II
+                        << "Before: " << Wait.getPrintable() << '\n');
       ScoreBrackets.determineWaitForLDSDMA(AMDGPU::LOAD_CNT, LDSDMA_BEGIN,
                                            Wait);
-      LLVM_DEBUG(
-          dbgs() << "After: "
-                 << Wait.getPrintable(dbgs(), /*HasExtendedWaitcnts=*/false)
-                 << '\n');
+      LLVM_DEBUG(dbgs() << "After: " << Wait.getPrintable() << '\n');
 
       // It is possible (but unlikely) that this is the only wait instruction,
       // in which case, we exit this loop without a WaitcntInstr to consume
