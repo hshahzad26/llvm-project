@@ -1649,11 +1649,14 @@ static unsigned getVGPRSpillSaveOpcode(unsigned Size, bool NeedsCFI) {
 static unsigned getAVSpillSaveOpcode(unsigned Size, bool NeedsCFI) {
   switch (Size) {
   case 4:
-    return NeedsCFI ? AMDGPU::SI_SPILL_AV32_CFI_SAVE : AMDGPU::SI_SPILL_AV32_SAVE;
+    return NeedsCFI ? AMDGPU::SI_SPILL_AV32_CFI_SAVE
+                    : AMDGPU::SI_SPILL_AV32_SAVE;
   case 8:
-    return NeedsCFI ? AMDGPU::SI_SPILL_AV64_CFI_SAVE : AMDGPU::SI_SPILL_AV64_SAVE;
+    return NeedsCFI ? AMDGPU::SI_SPILL_AV64_CFI_SAVE
+                    : AMDGPU::SI_SPILL_AV64_SAVE;
   case 12:
-    return NeedsCFI ? AMDGPU::SI_SPILL_AV96_CFI_SAVE : AMDGPU::SI_SPILL_AV96_SAVE;
+    return NeedsCFI ? AMDGPU::SI_SPILL_AV96_CFI_SAVE
+                    : AMDGPU::SI_SPILL_AV96_SAVE;
   case 16:
     return NeedsCFI ? AMDGPU::SI_SPILL_AV128_CFI_SAVE
                     : AMDGPU::SI_SPILL_AV128_SAVE;
@@ -1777,8 +1780,8 @@ void SIInstrInfo::storeRegToStackSlot(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI, Register SrcReg,
     bool isKill, int FrameIndex, const TargetRegisterClass *RC, Register VReg,
     MachineInstr::MIFlag Flags) const {
-  storeRegToStackSlotImpl(MBB, MI, SrcReg, isKill, FrameIndex, RC, VReg,
-                         Flags, false);
+  storeRegToStackSlotImpl(MBB, MI, SrcReg, isKill, FrameIndex, RC, VReg, Flags,
+                          false);
 }
 
 void SIInstrInfo::storeRegToStackSlotCFI(MachineBasicBlock &MBB,
@@ -1786,8 +1789,8 @@ void SIInstrInfo::storeRegToStackSlotCFI(MachineBasicBlock &MBB,
                                          Register SrcReg, bool isKill,
                                          int FrameIndex,
                                          const TargetRegisterClass *RC) const {
-  storeRegToStackSlotImpl(MBB, MI, SrcReg, isKill, FrameIndex, RC,
-                          Register(), MachineInstr::NoFlags, true);
+  storeRegToStackSlotImpl(MBB, MI, SrcReg, isKill, FrameIndex, RC, Register(),
+                          MachineInstr::NoFlags, true);
 }
 
 static unsigned getSGPRSpillRestoreOpcode(unsigned Size) {
@@ -4793,19 +4796,6 @@ bool SIInstrInfo::isInlineConstant(int64_t Imm, uint8_t OperandType) const {
   case AMDGPU::OPERAND_REG_INLINE_C_FP64:
   case AMDGPU::OPERAND_REG_INLINE_AC_FP64:
     return AMDGPU::isInlinableLiteral64(Imm, ST.hasInv2PiInlineImm());
-  case AMDGPU::OPERAND_REG_IMM_INT16:
-  case AMDGPU::OPERAND_REG_INLINE_C_INT16:
-    // We would expect inline immediates to not be concerned with an integer/fp
-    // distinction. However, in the case of 16-bit integer operations, the
-    // "floating point" values appear to not work. It seems read the low 16-bits
-    // of 32-bit immediates, which happens to always work for the integer
-    // values.
-    //
-    // See llvm bugzilla 46302.
-    //
-    // TODO: Theoretically we could use op-sel to use the high bits of the
-    // 32-bit FP values.
-    return AMDGPU::isInlinableIntLiteral(Imm);
   case AMDGPU::OPERAND_REG_IMM_V2INT16:
   case AMDGPU::OPERAND_REG_INLINE_C_V2INT16:
     return AMDGPU::isInlinableLiteralV2I16(Imm);
@@ -4819,6 +4809,11 @@ bool SIInstrInfo::isInlineConstant(int64_t Imm, uint8_t OperandType) const {
     return AMDGPU::isInlinableLiteralV2BF16(Imm);
   case AMDGPU::OPERAND_REG_IMM_NOINLINE_V2FP16:
     return false;
+  case AMDGPU::OPERAND_REG_IMM_INT16:
+  case AMDGPU::OPERAND_REG_INLINE_C_INT16:
+    if (AMDGPU::isInlinableIntLiteral(Imm))
+      return true;
+    [[fallthrough]];
   case AMDGPU::OPERAND_REG_IMM_FP16:
   case AMDGPU::OPERAND_REG_INLINE_C_FP16: {
     if (isInt<16>(Imm) || isUInt<16>(Imm)) {
