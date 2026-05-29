@@ -4584,6 +4584,18 @@ TEST_P(UncheckedStatusOrAccessModelTest, ReturnIfError) {
   )cc");
 }
 
+TEST_P(UncheckedStatusOrAccessModelTest, AssignOrReturn) {
+  ExpectDiagnosticsFor(R"cc(
+#include "unchecked_statusor_access_test_defs.h"
+
+  absl::Status target(STATUSOR_INT sor) {
+    ABSL_ASSIGN_OR_RETURN(int x, sor);
+    *sor;
+    return {};
+  }
+  )cc");
+}
+
 } // namespace
 
 std::string
