@@ -6297,12 +6297,12 @@ void AMDGPUKernelTy::printAMDOneLineKernelTrace(GenericDeviceTy &GenericDevice,
                                                 uint32_t NumBlocks[3],
                                                 int64_t MultiDeviceLB,
                                                 int64_t MultiDeviceUB) const {
-  auto GroupSegmentSize = (*KernelInfo).GroupSegmentList;
-  auto SGPRCount = (*KernelInfo).SGPRCount;
-  auto VGPRCount = (*KernelInfo).VGPRCount;
-  auto AGPRCount = (*KernelInfo).AGPRCount;
-  auto SGPRSpillCount = (*KernelInfo).SGPRSpillCount;
-  auto VGPRSpillCount = (*KernelInfo).VGPRSpillCount;
+  auto GroupSegmentSize = (KernelInfo).GroupSegmentList;
+  auto SGPRCount = (KernelInfo).SGPRCount;
+  auto VGPRCount = (KernelInfo).VGPRCount;
+  auto AGPRCount = (KernelInfo).AGPRCount;
+  auto SGPRSpillCount = (KernelInfo).SGPRSpillCount;
+  auto VGPRSpillCount = (KernelInfo).VGPRSpillCount;
   // auto MaxFlatWorkgroupSize = (*KernelInfo).MaxFlatWorkgroupSize;
 
   if (GenericDevice.enableKernelDurationTracing()) {
@@ -6598,10 +6598,10 @@ void AMDGPUQueueTy::callbackError(hsa_status_t Status, hsa_queue_t *Source,
 
 /// Compute the max kernel occupancy for AMD GPU
 unsigned AMDGPUKernelTy::computeMaxOccupancy(GenericDeviceTy &Device) const {
-  uint32_t GroupSegmentSize = (*KernelInfo).GroupSegmentList;
-  uint32_t SGPRCount = (*KernelInfo).SGPRCount;
-  uint32_t VGPRCount = (*KernelInfo).VGPRCount;
-  uint32_t MaxFlatWorkgroupSize = (*KernelInfo).MaxFlatWorkgroupSize;
+  uint32_t GroupSegmentSize = (KernelInfo).GroupSegmentList;
+  uint32_t SGPRCount = (KernelInfo).SGPRCount;
+  uint32_t VGPRCount = (KernelInfo).VGPRCount;
+  uint32_t MaxFlatWorkgroupSize = (KernelInfo).MaxFlatWorkgroupSize;
 
   // Default number of waves per EU
   unsigned MaxWavesPerEU = llvm::omp::amdgpu_arch::MaxWavesPerEU10;
