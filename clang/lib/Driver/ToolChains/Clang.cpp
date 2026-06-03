@@ -8206,7 +8206,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // be added so both IR can be captured.
   if ((C.getDriver().isSaveTempsEnabled() ||
        JA.isHostOffloading(Action::OFK_OpenMP)) &&
-      !(C.getDriver().embedBitcodeInObject() && !C.getDefaultToolChain().isUsingLTO(Args)) &&
+      !(C.getDriver().embedBitcodeInObject() && !getToolChain().isUsingLTO(Args)) &&
       isa<CompileJobAction>(JA)) {
     // We do not want to disable llvm opt passes if we are offloading
     // amdgpu openmp code, and -save-temps is specified.
