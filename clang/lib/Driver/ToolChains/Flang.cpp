@@ -277,7 +277,8 @@ void Flang::addCodegenOptions(const ArgList &Args,
        options::OPT_fstack_repack_arrays, options::OPT_fno_stack_repack_arrays,
        options::OPT_ftime_report, options::OPT_ftime_report_EQ,
        options::OPT_funroll_loops, options::OPT_fno_unroll_loops,
-       options::OPT_fdefer_desc_map, options::OPT_fno_defer_desc_map});
+       options::OPT_fdefer_desc_map, options::OPT_fno_defer_desc_map,
+       options::OPT_relaxed_c_loc});
 
   const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
   addSeparateSectionFlags(Triple, Args, CmdArgs);

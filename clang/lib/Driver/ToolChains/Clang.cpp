@@ -9475,14 +9475,10 @@ void OffloadBundler::ConstructJob(Compilation &C, const JobAction &JA,
     Triples += '-';
     Triples +=
         CurTC->getTriple().normalize(llvm::Triple::CanonicalForm::FOUR_IDENT);
-    if ((CurKind == Action::OFK_HIP || CurKind == Action::OFK_Cuda) &&
+    if (CurKind != Action::OFK_Host &&
         !StringRef(CurDep->getOffloadingArch()).empty()) {
       Triples += '-';
       Triples += CurDep->getOffloadingArch();
-    }
-    if (CurKind == Action::OFK_OpenMP && !CurTC->getTargetID().empty()) {
-      Triples += '-';
-      Triples += CurTC->getTargetID();
     }
   }
   CmdArgs.push_back(TCArgs.MakeArgString(Triples));
@@ -9579,16 +9575,10 @@ void OffloadBundler::ConstructJobMultipleOutputs(
     Triples += '-';
     Triples += Dep.DependentToolChain->getTriple().normalize(
         llvm::Triple::CanonicalForm::FOUR_IDENT);
-    if ((Dep.DependentOffloadKind == Action::OFK_HIP ||
-         Dep.DependentOffloadKind == Action::OFK_Cuda) &&
+    if (Dep.DependentOffloadKind != Action::OFK_Host &&
         !Dep.DependentBoundArch.empty()) {
       Triples += '-';
       Triples += Dep.DependentBoundArch;
-    }
-    if (OffloadKind == Action::OFK_OpenMP &&
-        !Dep.DependentToolChain->getTargetID().empty()) {
-      Triples += '-';
-      Triples += Dep.DependentToolChain->getTargetID();
     }
   }
 
