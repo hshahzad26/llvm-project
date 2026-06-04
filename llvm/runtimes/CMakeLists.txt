@@ -292,6 +292,10 @@ function(runtime_default_target)
       endif ()
     endif ()
   endif ()
+  if ("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
+    # The target flang-rt-mod is a dependee of check-flang.
+    list(APPEND extra_targets "flang-rt-mod")
+  endif ()
 
   if(LLVM_INCLUDE_TESTS)
     set_property(GLOBAL APPEND PROPERTY LLVM_ALL_LIT_TESTSUITES "@${LLVM_BINARY_DIR}/runtimes/runtimes-bins/lit.tests")
@@ -594,11 +598,8 @@ if(build_runtimes)
       endif()
     endforeach()
   endif()
-  # Allow openmp to see the Fortran compiler
-  if ("openmp" IN_LIST LLVM_ENABLE_RUNTIMES AND "flang" IN_LIST LLVM_ENABLE_PROJECTS)
-    list(APPEND extra_args ENABLE_FORTRAN)
-  endif()
   if("openmp" IN_LIST LLVM_ENABLE_RUNTIMES OR "offload" IN_LIST LLVM_ENABLE_RUNTIMES)
+<<<<<<< HEAD
     # With ROCm 6.3 the ROCr runtime and the thunk layer share a single repository.
     # No need to provide a separate path for ROCt.
     if (OFFLOAD_EXTERNAL_PROJECT_UNIFIED_ROCR)
@@ -670,6 +671,10 @@ if(build_runtimes)
     endif()
     foreach(dep opt llvm-link llvm-extract clang llvm-offload-binary clang-nvlink-wrapper rocm-device-libs offload-arch ${HSA_DEP} ${AMDGPU_ARCH_DEP} ${FORTRT_DEP})
       if(TARGET ${dep} AND OPENMP_ENABLE_LIBOMPTARGET)
+=======
+    foreach(dep opt llvm-link llvm-extract clang llvm-offload-binary clang-nvlink-wrapper)
+      if(TARGET ${dep})
+>>>>>>> bafde6fbb860
         list(APPEND extra_deps ${dep})
       endif()
     endforeach()
@@ -692,12 +697,18 @@ if(build_runtimes)
   if(LLVM_LIBC_FULL_BUILD)
     list(APPEND extra_cmake_args "-DLLVM_LIBC_FULL_BUILD=ON")
   endif()
-  if("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
-    list(APPEND extra_args ENABLE_FORTRAN)
-    if (${LLVM_TOOL_FLANG_BUILD})
-      list(APPEND extra_deps "flang" "module_files")
+  if("flang" IN_LIST LLVM_ENABLE_PROJECTS)
+    # Allow runtimes that can use it to access the Flang compiler
+    if ("openmp" IN_LIST LLVM_ENABLE_RUNTIMES OR "flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
+      list(APPEND extra_args ENABLE_FORTRAN)
     endif()
-  endif ()
+    # Ensure REAL(16) support in runtimes to be consistent with compiler
+    if(FLANG_RUNTIME_F128_MATH_LIB OR HAVE_LDBL_MANT_DIG_113)
+      list(APPEND extra_cmake_args "-DFORTRAN_SUPPORTS_REAL16=1")
+    else()
+      list(APPEND extra_cmake_args "-DFORTRAN_SUPPORTS_REAL16=0")
+    endif()
+  endif()
 
   if(NOT LLVM_RUNTIME_TARGETS)
     runtime_default_target(
