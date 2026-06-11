@@ -18,7 +18,6 @@
  * start of the universe up to the latest llvm main commit
  * that has been merged */
 #define LLVM_MAIN_REVISION 583808
-
 /* Define if LLVM_ENABLE_DUMP is enabled */
 #cmakedefine LLVM_ENABLE_DUMP
 
