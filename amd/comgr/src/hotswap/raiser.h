@@ -40,7 +40,7 @@ struct RaiseResult {
 //
 //   * Non-empty mode (anything else): both strings must be non-empty,
 //     `SourceISA` must parse via `llvm::AMDGPU::parseArchAMDGCN`, and
-//     `Meta.HasKernelDescriptor` must be true.
+//     `Meta.KernelDescriptor` must be engaged.
 //
 // Returns a `HotswapError` on rejected input; once wired in, decoder
 // failures will likewise propagate as `llvm::Error` (forwarded from

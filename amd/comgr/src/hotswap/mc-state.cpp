@@ -29,6 +29,10 @@ buildSubtargetInfo(const Target &Target, StringRef Isa) {
 }
 
 Error initMCState(MCState &State, StringRef TargetIsa) {
+  // TODO(multi-threading): these LLVMInitializeAMDGPU* registrations mutate
+  // process-global target registries and are not safe to call concurrently.
+  // When Comgr gains multi-threaded support they must move behind a
+  // std::once_flag (or be hoisted to a one-time init) -- see PR #2437.
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetMC();
@@ -96,6 +100,10 @@ std::string getMnemonic(const MCState &State, const MCInst &Inst) {
 }
 
 StringRef stripEncoding(StringRef Mn) {
+  // TODO: this suffix list is not exhaustive. The AMDGPU asm syntax carries
+  // several other encoding/modifier suffixes (e.g. _dpp, _sdwa, _gfx*, _e32
+  // variants) that we will need to strip as more instruction forms reach the
+  // raiser -- see PR #2437.
   for (StringRef Suffix : {"_e32", "_e64", "_vi"})
     if (Mn.ends_with(Suffix))
       return Mn.drop_back(Suffix.size());

@@ -20,7 +20,6 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <array>
 #include <cstring>
 #include <memory>
 
@@ -36,30 +35,30 @@ llvm::SmallString<18> hexAddr(uint64_t V) {
   return S;
 }
 
-/// Fixed-size buffer for a 64-byte AMDGPU kernel descriptor. Using
-/// `std::array` instead of a `MutableArrayRef<uint8_t>` lets the
-/// compiler enforce the size at the call site, so the explicit
-/// `assert(Out.size() == KdSize)` runtime check is no longer needed.
-using KernelDescriptorBuffer =
-    std::array<uint8_t, sizeof(llvm::amdhsa::kernel_descriptor_t)>;
-
-// Copy `<kernelName>.kd`'s 64 KD bytes from .rodata into `Out`. The KD
-// symbol is *always* in the .rodata section for amdhsa code objects (the
-// AMDGPU asm printer emits it there); we map the symbol's virtual
-// address to its file-level byte offset within the section's contents
-// and copy the canonical 64-byte structure. Any mismatch (missing
-// symbol, wrong size, address not within .rodata) is returned as an
-// `llvm::Error` -- forwarded LLVM errors keep their original
+// Read and parse `<kernelName>.kd`'s 64 KD bytes from .rodata into a
+// `KernelDescriptorFields`. The KD symbol is *always* in the .rodata
+// section for amdhsa code objects (the AMDGPU asm printer emits it there);
+// we map the symbol's virtual address to its file-level byte offset within
+// the section's contents and read the canonical 64-byte structure. Any
+// mismatch (missing symbol, wrong size, address not within .rodata) is
+// returned as an `llvm::Error` -- forwarded LLVM errors keep their original
 // ErrorInfo type, hotswap-detected mismatches use `HotswapError`.
+//
+// The 64-byte block is read straight into a `kernel_descriptor_t` so each
+// field comes from its struct member instead of an offset + read32le call
+// against a raw byte buffer.
 //
 // We deliberately key off the symbol rather than the MsgPack metadata:
 // the MsgPack notes do not include kernarg_preload_length /
 // preload_offset, and that information is essential for modelling the
 // gfx1250 user-SGPR ABI consumed by the raiser's user-SGPR layout.
-llvm::Error readKernelDescriptorBytes(llvm::object::ObjectFile &Obj,
-                                      llvm::StringRef KernelName,
-                                      KernelDescriptorBuffer &Out) {
-  constexpr size_t KdSize = std::tuple_size_v<KernelDescriptorBuffer>;
+//
+// Returning the parsed fields by value (instead of writing through an
+// out-parameter) lets `extractKernelMeta` propagate a KD parse failure
+// directly rather than turning it into a partial success.
+llvm::Expected<KernelDescriptorFields>
+readKernelDescriptor(llvm::object::ObjectFile &Obj, llvm::StringRef KernelName) {
+  constexpr size_t KdSize = sizeof(llvm::amdhsa::kernel_descriptor_t);
   std::string KdSymName = (KernelName + ".kd").str();
 
   std::optional<llvm::object::SectionRef> RodataSec;
@@ -74,7 +73,7 @@ llvm::Error readKernelDescriptorBytes(llvm::object::ObjectFile &Obj,
   }
   if (!RodataSec)
     return makeHotswapError(
-        "readKernelDescriptorBytes: no .rodata section in code object");
+        "readKernelDescriptor: no .rodata section in code object");
 
   uint64_t RodataAddr = RodataSec->getAddress();
   uint64_t RodataSize = RodataSec->getSize();
@@ -94,7 +93,7 @@ llvm::Error readKernelDescriptorBytes(llvm::object::ObjectFile &Obj,
   uint64_t SymAddr = *AddrOrErr;
 
   if (SymAddr < RodataAddr || SymAddr + KdSize > RodataAddr + RodataSize)
-    return makeHotswapError("readKernelDescriptorBytes: symbol '" + KdSymName +
+    return makeHotswapError("readKernelDescriptor: symbol '" + KdSymName +
                             "' at " + hexAddr(SymAddr) +
                             " is not contained within .rodata [" +
                             hexAddr(RodataAddr) + ", " +
@@ -102,47 +101,22 @@ llvm::Error readKernelDescriptorBytes(llvm::object::ObjectFile &Obj,
 
   uint64_t Off = SymAddr - RodataAddr;
   if (Off + KdSize > RodataContents.size())
-    return makeHotswapError("readKernelDescriptorBytes: symbol '" + KdSymName +
+    return makeHotswapError("readKernelDescriptor: symbol '" + KdSymName +
                             "' offset " + hexAddr(Off) + " + " +
                             llvm::Twine(KdSize) +
                             " exceeds .rodata contents size " +
                             hexAddr(RodataContents.size()));
 
-  llvm::ArrayRef<uint8_t> Src(RodataContents.bytes_begin() + Off, KdSize);
-  llvm::copy(Src, Out.begin());
-  return llvm::Error::success();
-}
-
-// Parse the four KD register fields we care about into `meta`. The
-// 64-byte block is read straight into a `kernel_descriptor_t` so each
-// field comes from its struct member instead of an offset + read32le
-// call against a raw byte buffer.
-//
-// KD-bytes lookup is partial-success: extractKernelMeta returns a
-// usable KernelMeta for the MsgPack-derived fields even when the
-// .rodata KD blob is unreachable. We log the underlying Error here
-// (no silent return on failure -- AGENT_CONVENTIONS section 2) and
-// leave `Meta.HasKernelDescriptor == false`. The raiser refuses the
-// lift in that case for non-empty inputs; empty-input scaffolding
-// mode skips the check.
-void populateKernelDescriptorFields(llvm::object::ObjectFile &Obj,
-                                    KernelMeta &Meta) {
-  KernelDescriptorBuffer KdBytes{};
-  if (llvm::Error E = readKernelDescriptorBytes(Obj, Meta.Name, KdBytes)) {
-    llvm::logAllUnhandledErrors(std::move(E), llvm::errs(), "transpiler: ");
-    Meta.HasKernelDescriptor = false;
-    return;
-  }
   llvm::amdhsa::kernel_descriptor_t Kd{};
-  static_assert(sizeof(Kd) == std::tuple_size_v<KernelDescriptorBuffer>,
-                "KernelDescriptorBuffer must match kernel_descriptor_t size");
-  std::memcpy(&Kd, KdBytes.data(), sizeof(Kd));
-  Meta.PrivateSegmentFixedSize = Kd.private_segment_fixed_size;
-  Meta.ComputePgmRsrc1 = Kd.compute_pgm_rsrc1;
-  Meta.ComputePgmRsrc2 = Kd.compute_pgm_rsrc2;
-  Meta.KernelCodeProperties = Kd.kernel_code_properties;
-  Meta.KernargPreload = Kd.kernarg_preload;
-  Meta.HasKernelDescriptor = true;
+  std::memcpy(&Kd, RodataContents.bytes_begin() + Off, sizeof(Kd));
+
+  KernelDescriptorFields Fields;
+  Fields.PrivateSegmentFixedSize = Kd.private_segment_fixed_size;
+  Fields.ComputePgmRsrc1 = Kd.compute_pgm_rsrc1;
+  Fields.ComputePgmRsrc2 = Kd.compute_pgm_rsrc2;
+  Fields.KernelCodeProperties = Kd.kernel_code_properties;
+  Fields.KernargPreload = Kd.kernarg_preload;
+  return Fields;
 }
 
 // Look up `Key` in `Map`. Returns null when the key is absent.
@@ -255,9 +229,8 @@ llvm::Expected<KernelMeta> extractKernelMeta(llvm::MemoryBufferRef ElfData,
     if (llvm::msgpack::DocNode *N =
             findInMap(KMap, ".group_segment_fixed_size"))
       Meta.GroupSegmentFixedSize = nodeAsInt(*N);
-    if (llvm::msgpack::DocNode *N =
-            findInMap(KMap, ".private_segment_fixed_size"))
-      Meta.PrivateSegmentFixedSize = nodeAsInt(*N);
+    // .private_segment_fixed_size is read authoritatively from the kernel
+    // descriptor (.rodata) below, not from the MsgPack notes.
     if (llvm::msgpack::DocNode *N = findInMap(KMap, ".max_flat_workgroup_size"))
       Meta.MaxFlatWorkgroupSize = nodeAsInt(*N);
 
@@ -287,10 +260,15 @@ llvm::Expected<KernelMeta> extractKernelMeta(llvm::MemoryBufferRef ElfData,
     return makeHotswapError("extractKernelMeta: kernel '" + KernelName +
                             "' not found in metadata");
 
-  // Fill the KD-register fields from .rodata. Partial-success: KD
-  // failures log + leave Meta.HasKernelDescriptor false; the raiser
-  // gates its non-empty-input lift on that flag.
-  populateKernelDescriptorFields(*ObjOrErr->get(), Meta);
+  // Read the KD-register fields from .rodata. A KD parse failure is fatal
+  // for the raiser-facing path: propagate it rather than returning a
+  // partial KernelMeta, so a successful return always carries the
+  // descriptor (PR #2437 review).
+  llvm::Expected<KernelDescriptorFields> KdOrErr =
+      readKernelDescriptor(*ObjOrErr->get(), Meta.Name);
+  if (!KdOrErr)
+    return KdOrErr.takeError();
+  Meta.KernelDescriptor = *KdOrErr;
   return Meta;
 }
 

@@ -27,6 +27,7 @@
 #include "llvm/Support/MemoryBufferRef.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace COMGR::hotswap {
@@ -66,64 +67,60 @@ struct KernelArgMeta {
   unsigned AddressSpace = 0;
 };
 
+/// Kernel descriptor (KD) register fields read directly from the 64-byte
+/// amd_kernel_code_t block at the `<kernelName>.kd` symbol (always in the
+/// .rodata section for amdhsa code objects). Together these are the entire
+/// surface needed to derive the source-ISA SGPR ABI.
+struct KernelDescriptorFields {
+  /// privateSegmentFixedSize (KD bytes 4-7): source private/scratch bytes
+  /// per work-item. A non-zero value paired with
+  /// `compute_pgm_rsrc2.ENABLE_PRIVATE_SEGMENT` is the launch-time ABI
+  /// request that makes ROCR/SPI allocate scratch backing.
+  uint32_t PrivateSegmentFixedSize = 0;
+
+  /// computePgmRsrc1 (KD bytes 48-51): not strictly required for the
+  /// user-SGPR layout, but useful for diagnostics and for future
+  /// wave-size-aware decisions. Captured for completeness.
+  uint32_t ComputePgmRsrc1 = 0;
+
+  /// computePgmRsrc2 (KD bytes 52-55): contains
+  /// ENABLE_SGPR_WORKGROUP_ID_{X,Y,Z} / WORKGROUP_INFO bits and the
+  /// USER_SGPR_COUNT field (read for verification only -- we recompute it
+  /// from KernelCodeProperties + KernargPreload.length and assert equality).
+  uint32_t ComputePgmRsrc2 = 0;
+
+  /// kernelCodeProperties (KD bytes 56-57): bit field selecting which
+  /// `enable_sgpr_*` user SGPRs the loader / packet processor will
+  /// pre-populate before kernel entry. See LLVM's AMDHSAKernelDescriptor.h
+  /// KERNEL_CODE_PROPERTY_ENABLE_SGPR_* enum for the bit positions.
+  uint16_t KernelCodeProperties = 0;
+
+  /// kernargPreload (KD bytes 58-59): packed {LENGTH[6:0], OFFSET[15:7]}
+  /// per LLVM's KERNARG_PRELOAD_SPEC enum. LENGTH=N and OFFSET=K mean: the
+  /// hardware copies N dwords of kernarg memory starting at byte (K*4) into
+  /// user SGPRs immediately above the `enable_sgpr_*`-selected ones, before
+  /// kernel entry. This is the gfx1250-specific kernarg preload mechanism
+  /// that the user-SGPR layout consumer needs to know about.
+  uint16_t KernargPreload = 0;
+};
+
 /// Per-kernel metadata extracted from the AMDGPU code object's MsgPack notes
 /// + kernel descriptor (`<name>.kd`).
 struct KernelMeta {
   std::string Name;
   uint32_t KernargSegmentSize = 0;
   uint32_t GroupSegmentFixedSize = 0;
-  uint32_t PrivateSegmentFixedSize = 0;
   uint32_t MaxFlatWorkgroupSize = 256;
   llvm::SmallVector<KernelArgMeta> Args;
 
-  // ---------------------------------------------------------------------
-  // Kernel descriptor (KD) raw fields.
-  //
-  // Populated by extractKernelMeta from the 64-byte amd_kernel_code_t block
-  // that lives at the symbol named `<kernelName>.kd` (always in the .rodata
-  // section for amdhsa code objects). These fields are the entire
-  // surface needed to derive the source-ISA SGPR ABI:
-  //
-  //   * privateSegmentFixedSize (KD bytes 4-7, mirrored from MsgPack): source
-  //     private/scratch bytes per work-item. A non-zero value paired with
-  //     `compute_pgm_rsrc2.ENABLE_PRIVATE_SEGMENT` is the launch-time ABI
-  //     request that makes ROCR/SPI allocate scratch backing.
-  //
-  //   * kernelCodeProperties  (KD bytes 56-57): bit field selecting which
-  //     `enable_sgpr_*` user SGPRs the loader / packet processor will pre-
-  //     populate before kernel entry. See LLVM's AMDHSAKernelDescriptor.h
-  //     KERNEL_CODE_PROPERTY_ENABLE_SGPR_* enum for the bit positions.
-  //
-  //   * kernargPreload        (KD bytes 58-59): packed
-  //     {LENGTH[6:0], OFFSET[15:7]} per LLVM's KERNARG_PRELOAD_SPEC enum.
-  //     LENGTH=N and OFFSET=K mean: the hardware copies N dwords of kernarg
-  //     memory starting at byte (K*4) into user SGPRs immediately above the
-  //     `enable_sgpr_*`-selected ones, before kernel entry. This is the
-  //     gfx1250-specific kernarg preload mechanism that the user-SGPR
-  //     layout consumer needs to know about.
-  //
-  //   * computePgmRsrc2       (KD bytes 52-55): contains
-  //     ENABLE_SGPR_WORKGROUP_ID_{X,Y,Z} / WORKGROUP_INFO bits and the
-  //     USER_SGPR_COUNT field (read for verification only -- we recompute
-  //     it from kernelCodeProperties + kernargPreload.length and assert
-  //     equality).
-  //
-  //   * computePgmRsrc1       (KD bytes 48-51): not strictly required for
-  //     the user-SGPR layout, but useful for diagnostics and for future
-  //     wave-size-aware decisions. Captured for completeness.
-  //
-  // `HasKernelDescriptor` is true iff the .rodata KD bytes parsed
-  // cleanly. extractKernelMeta treats KD parse failure as a partial
-  // success (logs the underlying Error, returns the MsgPack-derived
-  // fields, leaves this flag false) so callers who only need the
-  // MsgPack metadata are not blocked by a missing KD. raiseToIR
-  // gates its non-empty-input lift on this flag -- empty-input
-  // scaffolding mode skips the check.
-  bool HasKernelDescriptor = false;
-  uint32_t ComputePgmRsrc1 = 0;
-  uint32_t ComputePgmRsrc2 = 0;
-  uint16_t KernelCodeProperties = 0;
-  uint16_t KernargPreload = 0;
+  /// Kernel-descriptor register fields read from `.rodata`. Engaged iff
+  /// `extractKernelMeta` parsed the `<name>.kd` block successfully -- it
+  /// propagates a KD parse failure as an error rather than returning a
+  /// partial KernelMeta, so a successfully-extracted KernelMeta always
+  /// carries the descriptor. Stays `std::nullopt` for a default-constructed
+  /// KernelMeta (the raiser's empty-input scaffolding mode); raiseToIR gates
+  /// its non-empty-input lift on this optional being engaged.
+  std::optional<KernelDescriptorFields> KernelDescriptor;
 
   /// Byte offset (8-byte aligned) of the first hidden argument in the
   /// kernarg segment. Hidden arguments (`hidden_*` value kinds) are
@@ -157,9 +154,9 @@ listKernelNames(llvm::MemoryBufferRef ElfData);
 
 /// Extract the per-kernel metadata for `KernelName` from the MsgPack notes
 /// in `ElfData`, including the kernel-descriptor register fields read out
-/// of `.rodata`. KD-bytes lookup is best-effort: a usable KernelMeta is
-/// still returned for the MsgPack-derived fields when the .rodata KD blob
-/// is unreachable, with `HasKernelDescriptor == false`.
+/// of `.rodata`. A KD parse failure is fatal: the error is propagated
+/// rather than swallowed, so a returned KernelMeta always has its
+/// `KernelDescriptor` optional engaged.
 llvm::Expected<KernelMeta> extractKernelMeta(llvm::MemoryBufferRef ElfData,
                                              llvm::StringRef KernelName);
 

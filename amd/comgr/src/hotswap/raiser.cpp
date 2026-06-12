@@ -9,6 +9,7 @@
 #include "raiser.h"
 
 #include "hotswap-error.h"
+#include "mc-state.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CallingConv.h"
@@ -24,8 +25,6 @@ namespace COMGR::hotswap {
 
 namespace {
 
-constexpr llvm::StringLiteral AMDGPUTriple = "amdgcn-amd-amdhsa";
-
 // Reject obviously-bad inputs before constructing IR. Mirrors the
 // preconditions the full pipeline enforces in subsequent commits.
 //
@@ -39,7 +38,7 @@ constexpr llvm::StringLiteral AMDGPUTriple = "amdgcn-amd-amdhsa";
 //     lift request. Both strings must be non-empty, `SourceISA` must
 //     parse via `llvm::AMDGPU::parseArchAMDGCN`, and the kernel
 //     descriptor must have been parsed successfully (signaled by
-//     `Meta.HasKernelDescriptor`). A partially-empty input
+//     `Meta.KernelDescriptor` being engaged). A partially-empty input
 //     (e.g. empty kernel name with a real ISA) is rejected as
 //     malformed.
 //
@@ -70,7 +69,7 @@ llvm::Error validateInputs(llvm::StringRef SourceISA,
     return makeHotswapError("raiseToIR: source ISA '" + SourceISA +
                             "' does not name an AMDGPU GPU");
 
-  if (!Meta.HasKernelDescriptor)
+  if (!Meta.KernelDescriptor)
     return makeHotswapError("raiseToIR: kernel '" + KernelName +
                             "' has no parsed kernel descriptor");
   return llvm::Error::success();
@@ -91,7 +90,7 @@ llvm::Expected<RaiseResult> raiseToIR(llvm::StringRef SourceISA,
   LLVMContext &C = *Result.Ctx;
   Result.Module = std::make_unique<Module>("transpiler_module", C);
   Module &M = *Result.Module;
-  M.setTargetTriple(Triple(AMDGPUTriple));
+  M.setTargetTriple(Triple(kAMDGPUTriple));
 
   FunctionType *FuncTy =
       FunctionType::get(Type::getVoidTy(C), /*isVarArg=*/false);
