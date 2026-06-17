@@ -120,20 +120,18 @@ endmacro()
 # flang dependency to the main build target and any fortran module file builds,
 # like 'install-libomp-mod' or `install-flang-rt-mod'.
 function(add_flang_mod_deps build_target)
-  if(NOT TARGET flang)
-    return ()
-  endif ()
-
-  if(TARGET ${build_target})
-    add_dependencies(${build_target} flang)
-  endif()
-  foreach(tgt IN LISTS ARGN)
-    if(tgt MATCHES "-mod($|-)" OR tgt MATCHES "check-(flang-rt|openmp)($|-)")
-      if(TARGET ${tgt})
-        add_dependencies(${tgt} flang)
-      endif()
+  if(TARGET flang)
+    if(TARGET ${build_target})
+      add_dependencies(${build_target} flang)
     endif()
-  endforeach()
+    foreach(tgt IN LISTS ARGN)
+      if(tgt MATCHES "-mod($|-)")
+        if(TARGET ${tgt})
+          add_dependencies(${tgt} flang)
+        endif()
+      endif()
+    endforeach()
+  endif()
 endfunction()
 
 function(builtin_default_target compiler_rt_path)
@@ -366,7 +364,7 @@ function(runtime_default_target)
                            FOLDER "Runtimes"
                            ${EXTRA_ARGS} ${ARG_EXTRA_ARGS})
 
-  add_flang_mod_deps(runtimes-build ${extra_targets} ${test_targets})
+  add_flang_mod_deps(runtimes-build ${extra_targets})
 endfunction()
 
 # runtime_register_target(name)
@@ -546,7 +544,6 @@ if(build_runtimes)
   if(LLVM_INCLUDE_TESTS)
     foreach(dep FileCheck
                 clang
-                flang-lazy
                 count
                 lld
                 lli
